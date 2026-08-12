@@ -1,6 +1,6 @@
 ; Inno Setup — Clipboard Manager. Signed single-file installer, compiled in CI.
 #define AppName "Clipboard Manager"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 
 [Setup]
 AppId={{3D4F7C20-6D48-4E5B-8C71-9B0E2F3A4D54}
@@ -23,7 +23,7 @@ WizardSmallImageFile=branding\wizard-small.bmp
 AppCopyright=Apache-2.0. 100%% AI-built, published on QuickOpen (quickopen.ai).
 VersionInfoCompany=QuickOpen
 VersionInfoProductName=Clipboard Manager
-VersionInfoVersion=1.0.0.0
+VersionInfoVersion=1.0.1.0
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
