@@ -19,7 +19,9 @@ jobs:
         run: >
           pyinstaller --onefile --windowed --name ClipboardManager
           --icon clipboard-manager.ico
+          --collect-all customtkinter
           --version-file packaging/version.txt
+          --hidden-import clipkit.__main__
           --add-data "clipboard-manager.ico;."
           clipboard_app.py
       - name: Stage installer inputs
@@ -40,4 +42,10 @@ jobs:
           path: |
             dist/ClipboardManager.exe
             packaging/dist/ClipboardManager-Setup.exe
+          if-no-files-found: error
+      - name: Upload staging (for signed repack)
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipboard-manager-staging
+          path: packaging/staging
           if-no-files-found: error

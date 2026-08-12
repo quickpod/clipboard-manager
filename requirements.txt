@@ -1,2 +1,4 @@
 # Clipboard Manager runtime deps — permissive/weak-copyleft only, no AGPL/proprietary.
 pyperclip>=1.8
+customtkinter>=5.2
+darkdetect>=0.8

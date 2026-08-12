@@ -1,8 +1,9 @@
 ; Inno Setup — Clipboard Manager. Signed single-file installer, compiled in CI.
 #define AppName "Clipboard Manager"
-#define AppVersion "1.0.1"
+#define AppVersion "1.0.2"
 
 [Setup]
+AppMutex=QuickOpen.ClipboardManager
 AppId={{3D4F7C20-6D48-4E5B-8C71-9B0E2F3A4D54}
 AppName={#AppName}
 AppVersion={#AppVersion}
@@ -23,7 +24,7 @@ WizardSmallImageFile=branding\wizard-small.bmp
 AppCopyright=Apache-2.0. 100%% AI-built, published on QuickOpen (quickopen.ai).
 VersionInfoCompany=QuickOpen
 VersionInfoProductName=Clipboard Manager
-VersionInfoVersion=1.0.1.0
+VersionInfoVersion=1.0.2.0
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -57,13 +58,3 @@ Filename: "{app}\ClipboardManager.exe"; Description: "Launch Clipboard Manager n
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\ClipboardManager"
 
-[Code]
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var ResultCode: Integer;
-begin
-  if CurUninstallStep = usUninstall then
-    if MsgBox('Also remove the QuickOpen Root CA from the Trusted Root store?' + #13#10 +
-              'Choose No if you use other QuickOpen apps that rely on it.',
-              mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
-      Exec('certutil.exe', '-delstore -user Root "QuickOpen Root CA"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-end;

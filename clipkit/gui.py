@@ -1,29 +1,36 @@
 #!/usr/bin/env python3
-r"""Clipboard Manager -- a pure-stdlib + pyperclip tkinter GUI on the clipkit store.
+r"""Clipboard Manager -- an Aura (QuickOpen design system) GUI on the clipkit store.
 
-A single main window:
+A single Aura window with a sidebar of sections:
 
-  * a search box on top that filters the lists live;
-  * a scrollable **History** list (newest first) -- each row has a one-line
-    preview and per-row Pin/Unpin, Copy and Delete buttons; click a row to
-    select it;
-  * a separate **Pinned** section for snippets that survive Clear;
-  * a **Transforms** toolbar that applies a transform to the selected entry and
-    copies the result to the clipboard;
-  * Clear (keeps pinned) and Pause/Resume-capture buttons, plus a dark-mode
-    toggle whose choice is persisted in the store.
+  * **History** -- a search box that filters live, a manual Add box, a
+    **Pinned** card (snippets that survive Clear) and a **History** card
+    (newest first); each row has a one-line preview and per-row Pin/Unpin,
+    Copy and Delete buttons; click a row to select it.
+  * **Transforms** -- apply a text transform to the selected entry and copy
+    the result to the clipboard.
+  * **About** -- version / licence info.
+
+Pause/Resume-capture lives in the header, Clear (keeps pinned) in the status
+bar, and the dark-mode toggle is the Aura sidebar switch (the choice is
+persisted in the store).
 
 A background thread runs :func:`clipkit.monitor.poll_clipboard` to capture new
 copies into the store; results are marshalled back onto the Tk thread with
-``after``.  Everything degrades gracefully: with no display the app prints a
-friendly note and returns 0, and with no clipboard backend it still browses,
-pins and manually adds -- it just cannot auto-capture or copy.
+``after``.  Everything degrades gracefully: with no display (or without
+customtkinter installed) the app prints a friendly note and returns 0, and
+with no clipboard backend it still browses, pins and manually adds -- it just
+cannot auto-capture or copy.
 
-Design goals mirror the QuickOpen house style (see pdf-toolkit/gui.py):
-  * pure standard-library tkinter/ttk; the ONLY third-party dep is pyperclip,
-    imported lazily and always guarded.
+Design goals baked in here (mirrors the QuickOpen house style):
+  * built on the vendored ``clipkit/aura.py`` design system, which layers the
+    quickopen.ai look (deep space + light) over CustomTkinter.  Runtime deps:
+    ``customtkinter`` (+ ``darkdetect``) — declared in requirements.txt; the
+    PyInstaller build adds ``--collect-all customtkinter``.
   * importing this module does nothing -- only :func:`main` builds a root window.
   * frozen-exe safe assets via ``sys._MEIPASS`` / the exe dir, never ``__file__``.
+  * background work stays off the Tk thread and errors surface in the Aura
+    status bar, never as a traceback.
 
 100% AI-built, open source, published on QuickOpen (quickopen.ai).
 """
@@ -34,32 +41,15 @@ import os
 import sys
 import threading
 
-# NOTE: tkinter is imported lazily inside build_app()/main() so that merely
-# importing this module (packaging, headless CI) never fails.
+# NOTE: tkinter/customtkinter are imported lazily inside build_app()/main() so
+# that merely importing this module (packaging, headless CI) never fails.
 
 APP_NAME = "Clipboard Manager"
 APP_VERSION = "1.0.0"
 WINDOW_TITLE = "Clipboard Manager — by QuickOpen (quickopen.ai)"
 PROJECT_URL = "https://quickopen.ai"
 POLL_INTERVAL = 0.7
-
-# ---- colour palettes (mirror the QuickOpen palette) -------------------------
-PALETTES = {
-    "light": {
-        "bg": "#f5f7fa", "surface": "#ffffff", "text": "#141820",
-        "muted": "#5b6472", "primary": "#2f5fe0", "primary_hi": "#2450c8",
-        "entry": "#ffffff", "border": "#d5dae2", "sel": "#2f5fe0",
-        "sel_fg": "#ffffff", "trough": "#e2e7ef", "ok": "#1f7a3d",
-        "err": "#c0392b", "rowsel": "#e7edfb",
-    },
-    "dark": {
-        "bg": "#0f1115", "surface": "#1a1e24", "text": "#f1f3f7",
-        "muted": "#9aa4b2", "primary": "#5b86f7", "primary_hi": "#7098ff",
-        "entry": "#1a1e24", "border": "#2a2f38", "sel": "#5b86f7",
-        "sel_fg": "#0f1115", "trough": "#2a2f38", "ok": "#5bd68a",
-        "err": "#ff6b5e", "rowsel": "#232a36",
-    },
-}
+ACCENT = "#b0700a"      # publish/specs/clipboard-manager.json "accent": [176, 112, 10]
 
 
 # ---------------------------------------------------------------------------
@@ -113,28 +103,27 @@ def _one_line(text, width=90):
 
 
 # ---------------------------------------------------------------------------
-# The app (built lazily; tkinter imported only inside build_app/main)
+# The app (built lazily; tkinter/customtkinter imported only inside build_app)
 # ---------------------------------------------------------------------------
 def build_app():
-    """Construct and return the App class bound to a live tkinter import.
+    """Construct and return the App class bound to live GUI imports.
 
-    Kept inside a function so this module imports cleanly without a display.
+    Kept inside a function so this module imports cleanly without a display
+    (and without customtkinter installed).
     """
     import tkinter as tk
     from tkinter import ttk
+    import customtkinter as ctk
 
-    from . import transforms
+    from . import aura, transforms
     from .store import Store
     from .monitor import poll_clipboard, set_clipboard, clipboard_available
-
-    FONT = "Segoe UI"
 
     class ScrollList(ttk.Frame):
         """A vertically scrollable column of row widgets (Canvas + inner frame)."""
 
-        def __init__(self, master, app, height=200):
-            super().__init__(master, style="TFrame")
-            self.app = app
+        def __init__(self, master, height=200):
+            super().__init__(master, style="Surface.TFrame")
             self.canvas = tk.Canvas(self, height=height, highlightthickness=0,
                                     borderwidth=0)
             self.sb = ttk.Scrollbar(self, orient="vertical",
@@ -142,7 +131,7 @@ def build_app():
             self.canvas.configure(yscrollcommand=self.sb.set)
             self.sb.pack(side="right", fill="y")
             self.canvas.pack(side="left", fill="both", expand=True)
-            self.inner = ttk.Frame(self.canvas, style="TFrame")
+            self.inner = ttk.Frame(self.canvas, style="Surface.TFrame")
             self._win = self.canvas.create_window((0, 0), window=self.inner,
                                                   anchor="nw")
             self.inner.bind("<Configure>", lambda e: self.canvas.configure(
@@ -151,7 +140,7 @@ def build_app():
                 self._win, width=e.width))
             self.canvas.bind("<Enter>", self._bind_wheel)
             self.canvas.bind("<Leave>", self._unbind_wheel)
-            app.track(self.canvas, "canvas")
+            aura.track(self.canvas, "canvas")
 
         def _bind_wheel(self, _e=None):
             self.canvas.bind_all("<MouseWheel>", self._on_wheel)
@@ -176,34 +165,49 @@ def build_app():
             for child in self.inner.winfo_children():
                 child.destroy()
 
-    class App(tk.Tk):
+    class App(aura.AuraApp):
         def __init__(self):
-            super().__init__()
-            self.title(WINDOW_TITLE)
-            self.geometry("760x680")
-            self.minsize(560, 480)
+            store = Store()          # pure python; safe before Tk exists
+            super().__init__(
+                title=WINDOW_TITLE, app_name=APP_NAME, accent=ACCENT,
+                theme=store.get_theme(),
+                icon_png=asset_path("clipboard-manager.png"),
+                version=APP_VERSION,
+                tagline="offline clipboard history",
+                on_theme_change=store.set_theme,
+                size=(1080, 680), min_size=(880, 560))
 
-            self.store = Store()
-            self.theme = self.store.get_theme()
-            self._tracked = []           # (tk_widget, role) for manual re-theme
-            self._img_refs = []          # keep PhotoImage refs alive
+            self.store = store
             self._selected_id = None
             self._stop = threading.Event()
             self._poller = None
             self._clip_ok = True
+            self._img_refs_gui = []
 
-            self.search_var = tk.StringVar()
-            self.add_var = tk.StringVar()
-            self.transform_var = tk.StringVar()
+            self._tf_labels = [lbl for lbl, _ in transforms.TRANSFORMS.values()]
+            self._tf_by_label = {lbl: name for name, (lbl, _)
+                                 in transforms.TRANSFORMS.items()}
 
             self._set_icon()
             self._build_menu()
-            self._build_layout()
-            self._apply_theme()
-            self.protocol("WM_DELETE_WINDOW", self._on_close)
+            self._style_rows()
+            self.add_section("history", "History", "↻", self._build_history)
+            self.add_section("transforms", "Transforms", "⇄",
+                             self._build_transforms)
+            self.add_section("about", "About", "ℹ", self._build_about)
+            self.show("history")
 
-            self.search_var.trace_add("write", lambda *_: self.refresh())
-            self.refresh()
+            # global actions: pause/resume in the header, Clear in the status bar
+            self._pause_btn = aura.AuraButton(
+                self.header_actions, "Pause capture", kind="secondary",
+                height=30, command=self._toggle_pause)
+            self._pause_btn.pack(side="left")
+            aura.AuraButton(self.statusbar.actions, "Clear (keep pinned)",
+                            kind="secondary", height=30,
+                            command=self._clear_history).pack(side="left")
+
+            self.set_status("Ready")
+            self.protocol("WM_DELETE_WINDOW", self._on_close)
             self.after(120, self._start_poll)
 
         # ---- assets / icon
@@ -219,100 +223,42 @@ def build_app():
                 png = asset_path("clipboard-manager.png")
                 if png:
                     img = tk.PhotoImage(file=png)
-                    self._img_refs.append(img)
+                    self._img_refs_gui.append(img)
                     self.iconphoto(True, img)
             except Exception:
                 pass  # icon is cosmetic; never block launch
 
-        # ---- theming
-        def track(self, widget, role):
-            self._tracked.append((widget, role))
-
-        def _pal(self):
-            return PALETTES[self.theme]
-
-        def _apply_theme(self):
-            p = self._pal()
+        # ---- row styles (ttk rows on the list canvases; colors from aura)
+        def _style_rows(self):
+            p = aura.P()
+            sel = p["accent_soft"]
             style = ttk.Style(self)
-            try:
-                style.theme_use("clam")
-            except Exception:
-                pass
-            self.configure(bg=p["bg"])
-            style.configure(".", background=p["bg"], foreground=p["text"],
-                            fieldbackground=p["entry"], bordercolor=p["border"],
-                            font=(FONT, 10))
-            style.configure("TFrame", background=p["bg"])
-            style.configure("Surface.TFrame", background=p["surface"])
             style.configure("Row.TFrame", background=p["surface"])
-            style.configure("RowSel.TFrame", background=p["rowsel"])
-            style.configure("TLabel", background=p["bg"], foreground=p["text"])
-            style.configure("Muted.TLabel", background=p["bg"],
-                            foreground=p["muted"])
-            style.configure("Header.TLabel", background=p["bg"],
-                            foreground=p["text"], font=(FONT, 13, "bold"))
-            style.configure("Brand.TLabel", background=p["surface"],
-                            foreground=p["text"], font=(FONT, 12, "bold"))
-            style.configure("Status.TLabel", background=p["surface"],
-                            foreground=p["muted"])
+            style.configure("RowSel.TFrame", background=sel)
             style.configure("Row.TLabel", background=p["surface"],
                             foreground=p["text"])
-            style.configure("RowSel.TLabel", background=p["rowsel"],
+            style.configure("RowSel.TLabel", background=sel,
                             foreground=p["text"])
             style.configure("RowPin.TLabel", background=p["surface"],
-                            foreground=p["primary"])
-            style.configure("TButton", background=p["surface"],
-                            foreground=p["text"], bordercolor=p["border"],
-                            focuscolor=p["surface"], padding=(8, 4))
-            style.map("TButton",
-                      background=[("active", p["trough"]),
-                                  ("disabled", p["bg"])],
-                      foreground=[("disabled", p["muted"])])
-            style.configure("Accent.TButton", background=p["primary"],
-                            foreground="#ffffff", padding=(10, 5))
-            style.map("Accent.TButton",
-                      background=[("active", p["primary_hi"]),
-                                  ("disabled", p["border"])],
-                      foreground=[("disabled", p["muted"])])
-            style.configure("Row.TButton", background=p["surface"],
-                            foreground=p["text"], padding=(6, 2))
-            style.map("Row.TButton", background=[("active", p["trough"])])
-            style.configure("Toggle.TButton", background=p["surface"],
-                            foreground=p["text"], padding=(8, 4))
-            style.configure("TEntry", fieldbackground=p["entry"],
-                            foreground=p["text"], insertcolor=p["text"],
-                            bordercolor=p["border"])
-            style.configure("TCombobox", fieldbackground=p["entry"],
-                            foreground=p["text"], background=p["surface"],
-                            arrowcolor=p["text"])
-            style.map("TCombobox", fieldbackground=[("readonly", p["entry"])],
-                      foreground=[("readonly", p["text"])])
-            style.configure("TLabelframe", background=p["bg"],
-                            foreground=p["text"], bordercolor=p["border"])
-            style.configure("TLabelframe.Label", background=p["bg"],
+                            foreground=p["accent"])
+            style.configure("RowSelPin.TLabel", background=sel,
+                            foreground=p["accent"])
+            style.configure("RowMuted.TLabel", background=p["surface"],
                             foreground=p["muted"])
-            style.configure("TScrollbar", background=p["surface"],
-                            troughcolor=p["bg"], bordercolor=p["border"],
-                            arrowcolor=p["text"])
-            style.configure("TSeparator", background=p["border"])
+            style.configure("Row.TButton", background=p["surface"],
+                            foreground=p["text"], bordercolor=p["border"],
+                            focuscolor=p["accent"], padding=(6, 2))
+            style.map("Row.TButton",
+                      background=[("pressed", p["surface3"]),
+                                  ("active", p["surface2"])])
 
-            for widget, role in list(self._tracked):
-                try:
-                    if role == "canvas":
-                        widget.configure(bg=p["surface"], highlightthickness=1,
-                                         highlightbackground=p["border"])
-                except Exception:
-                    pass
-
-        def toggle_theme(self):
-            self.theme = "dark" if self.theme == "light" else "light"
-            self.store.set_theme(self.theme)
-            self._apply_theme()
-            self._theme_btn.configure(
-                text="☀ Light mode" if self.theme == "dark" else "🌙 Dark mode")
+        def set_theme(self, theme):
+            """Aura flips ctk + ttk; re-apply our row styles and re-render."""
+            super().set_theme(theme)
+            self._style_rows()
             self.refresh()
 
-        # ---- menu
+        # ---- menu (native menus stay; theme lives in the sidebar toggle too)
         def _build_menu(self):
             bar = tk.Menu(self)
             filem = tk.Menu(bar, tearoff=0)
@@ -322,92 +268,49 @@ def build_app():
             bar.add_cascade(label="File", menu=filem)
 
             viewm = tk.Menu(bar, tearoff=0)
-            viewm.add_command(label="Toggle dark mode", command=self.toggle_theme)
+            viewm.add_command(
+                label="Toggle dark mode",
+                command=lambda: self.set_theme(
+                    "light" if self.theme == "dark" else "dark"))
             bar.add_cascade(label="View", menu=viewm)
 
             helpm = tk.Menu(bar, tearoff=0)
-            helpm.add_command(label="About", command=self._about)
+            helpm.add_command(label="About",
+                              command=lambda: self.show("about"))
             helpm.add_command(label="Open project page (quickopen.ai)",
                               command=lambda: open_with_default_app(PROJECT_URL))
             bar.add_cascade(label="Help", menu=helpm)
             self.configure(menu=bar)
 
-        # ---- layout
-        def _build_layout(self):
-            # top brand bar
-            top = ttk.Frame(self, style="Surface.TFrame", padding=(12, 8))
-            top.pack(fill="x", side="top")
-            ttk.Label(top, text="Clipboard Manager",
-                      style="Brand.TLabel").pack(side="left")
-            ttk.Label(top, style="Status.TLabel",
-                      text="  offline · open source · by QuickOpen").pack(
-                side="left")
-            self._theme_btn = ttk.Button(
-                top, style="Toggle.TButton", command=self.toggle_theme,
-                text="☀ Light mode" if self.theme == "dark" else "🌙 Dark mode")
-            self._theme_btn.pack(side="right")
-            self._pause_btn = ttk.Button(top, style="Toggle.TButton",
-                                         command=self._toggle_pause,
-                                         text="⏸ Pause capture")
-            self._pause_btn.pack(side="right", padx=(0, 6))
+        # =================================================================
+        # History section (search + add, Pinned card, History card)
+        # =================================================================
+        def _build_history(self, frame):
+            bar = ctk.CTkFrame(frame, fg_color="transparent")
+            bar.pack(fill="x", pady=(0, 12))
+            # no textvariable: CTkEntry placeholders only work without one
+            self.search_entry = aura.AuraEntry(
+                bar, placeholder="Search history and pinned…")
+            self.search_entry.pack(side="left", fill="x", expand=True)
+            self.search_entry.bind("<KeyRelease>", lambda _e: self.refresh())
+            self.add_entry = aura.AuraEntry(bar, placeholder="Add a snippet…",
+                                            width=230)
+            self.add_entry.pack(side="left", padx=(10, 8))
+            self.add_entry.bind("<Return>", lambda _e: self._manual_add())
+            aura.AuraButton(bar, "Add", width=70,
+                            command=self._manual_add).pack(side="left")
 
-            # search + manual add
-            tools = ttk.Frame(self, style="TFrame", padding=(12, 8))
-            tools.pack(fill="x")
-            ttk.Label(tools, text="Search").pack(side="left")
-            ttk.Entry(tools, textvariable=self.search_var).pack(
-                side="left", fill="x", expand=True, padx=(6, 12))
-            ttk.Label(tools, text="Add").pack(side="left")
-            add_entry = ttk.Entry(tools, textvariable=self.add_var, width=24)
-            add_entry.pack(side="left", padx=6)
-            add_entry.bind("<Return>", lambda e: self._manual_add())
-            ttk.Button(tools, text="Add", style="Accent.TButton",
-                       command=self._manual_add).pack(side="left")
-
-            body = ttk.Frame(self, style="TFrame", padding=(12, 0))
-            body.pack(fill="both", expand=True)
-
-            # Pinned section
-            ttk.Label(body, text="Pinned", style="Header.TLabel").pack(
-                anchor="w", pady=(4, 2))
-            self.pinned_list = ScrollList(body, self, height=110)
+            pinned = aura.Card(frame, title="Pinned — survives Clear")
+            pinned.pack(fill="x", pady=(0, 14))
+            self.pinned_list = ScrollList(pinned.body, height=104)
             self.pinned_list.pack(fill="x")
 
-            # History section
-            ttk.Label(body, text="History (newest first)",
-                      style="Header.TLabel").pack(anchor="w", pady=(10, 2))
-            self.history_list = ScrollList(body, self, height=220)
+            hist = aura.Card(frame, title="History — newest first")
+            hist.pack(fill="both", expand=True)
+            self.history_list = ScrollList(hist.body, height=220)
             self.history_list.pack(fill="both", expand=True)
 
-            # Transforms toolbar
-            tf = ttk.Frame(self, style="TFrame", padding=(12, 8))
-            tf.pack(fill="x")
-            ttk.Label(tf, text="Transform selected").pack(side="left")
-            self._tf_labels = [lbl for lbl, _ in transforms.TRANSFORMS.values()]
-            self._tf_by_label = {lbl: name for name, (lbl, _)
-                                 in transforms.TRANSFORMS.items()}
-            self.transform_var.set(self._tf_labels[0])
-            ttk.Combobox(tf, textvariable=self.transform_var, state="readonly",
-                         width=26, values=self._tf_labels).pack(
-                side="left", padx=6)
-            ttk.Button(tf, text="Apply → copy", style="Accent.TButton",
-                       command=self._apply_transform).pack(side="left")
-            ttk.Button(tf, text="Clear (keep pinned)",
-                       command=self._clear_history).pack(side="right")
-
-            # status bar
-            bar = ttk.Frame(self, style="Surface.TFrame", padding=(12, 6))
-            bar.pack(fill="x", side="bottom")
-            self.status_lbl = ttk.Label(bar, text="Ready", style="Status.TLabel",
-                                        anchor="w")
-            self.status_lbl.pack(side="left", fill="x", expand=True)
-
-        # ---- status helpers
-        def _set_status(self, text, kind="idle"):
-            p = self._pal()
-            color = {"ok": p["ok"], "err": p["err"], "work": p["primary"]}.get(
-                kind, p["muted"])
-            self.status_lbl.configure(text=text, foreground=color)
+            self.refresh()
 
         # ---- rows
         def _add_row(self, parent, item):
@@ -418,7 +321,8 @@ def build_app():
             row.pack(fill="x", pady=1)
 
             if item["pinned"]:
-                ttk.Label(row, text="★", style="RowPin.TLabel").pack(side="left")
+                pstyle = "RowSelPin.TLabel" if selected else "RowPin.TLabel"
+                ttk.Label(row, text="★", style=pstyle).pack(side="left")
             lbl = ttk.Label(row, text=_one_line(item["text"]), style=lstyle,
                             anchor="w")
             lbl.pack(side="left", fill="x", expand=True, padx=(4, 6))
@@ -437,14 +341,16 @@ def build_app():
                 side="right", padx=2)
 
         def refresh(self):
-            query = self.search_var.get().strip()
+            if not hasattr(self, "history_list"):
+                return  # History section not built yet
+            query = self.search_entry.get().strip()
             history = self.store.search(query) if query else self.store.items()
             pinned = [it for it in self.store.pinned()
                       if not query or query.lower() in it["text"].lower()]
 
             self.pinned_list.clear_rows()
             if not pinned:
-                ttk.Label(self.pinned_list.inner, style="Muted.TLabel",
+                ttk.Label(self.pinned_list.inner, style="RowMuted.TLabel",
                           text="No pinned snippets yet — pin an entry to keep it "
                                "through Clear.").pack(anchor="w", padx=6, pady=4)
             else:
@@ -455,11 +361,71 @@ def build_app():
             if not history:
                 msg = ("No matches." if query
                        else "History is empty — copy something, or use Add.")
-                ttk.Label(self.history_list.inner, style="Muted.TLabel",
+                ttk.Label(self.history_list.inner, style="RowMuted.TLabel",
                           text=msg).pack(anchor="w", padx=6, pady=4)
             else:
                 for it in history:
                     self._add_row(self.history_list.inner, it)
+
+            self._update_sel_preview()
+
+        # =================================================================
+        # Transforms section
+        # =================================================================
+        def _build_transforms(self, frame):
+            card = aura.Card(frame, title="Transform the selected entry")
+            card.pack(fill="x")
+            self._sel_lbl = ctk.CTkLabel(card.body, font=aura.font(),
+                                         justify="left", anchor="w",
+                                         wraplength=640, text="")
+            self._sel_lbl.pack(fill="x", pady=(0, 10))
+            row = ctk.CTkFrame(card.body, fg_color="transparent")
+            row.pack(fill="x")
+            self.transform_var = tk.StringVar(value=self._tf_labels[0])
+            aura.AuraCombo(row, variable=self.transform_var,
+                           values=self._tf_labels, state="readonly",
+                           width=250).pack(side="left", padx=(0, 10))
+            aura.AuraButton(row, "Apply → copy",
+                            command=self._apply_transform).pack(side="left")
+            aura.Caption(card.body,
+                         "Pick an entry in “History” first (click a row); the "
+                         "transformed text is copied to the clipboard.").pack(
+                anchor="w", pady=(12, 0))
+            self._update_sel_preview()
+
+        def _update_sel_preview(self):
+            if not hasattr(self, "_sel_lbl"):
+                return  # Transforms section not built yet
+            item = self._selected_item()
+            self._sel_lbl.configure(
+                text=("Selected:  " + _one_line(item["text"])) if item
+                else "No entry selected.")
+
+        # =================================================================
+        # About section
+        # =================================================================
+        def _build_about(self, frame):
+            card = aura.Card(frame, title="About Clipboard Manager")
+            card.pack(fill="x")
+            aura.Heading(card.body, APP_NAME).pack(anchor="w")
+            aura.Caption(card.body, f"Version {APP_VERSION}").pack(
+                anchor="w", pady=(0, 10))
+            ctk.CTkLabel(
+                card.body, font=aura.font(), justify="left", anchor="w",
+                wraplength=520,
+                text="A fast, fully-offline clipboard history manager — "
+                     "search past copies, pin snippets, re-copy any entry "
+                     "and apply quick text transforms.\n\n"
+                     "100% AI-built, open source, published on QuickOpen. "
+                     "Nothing is ever uploaded anywhere.").pack(anchor="w")
+            aura.Caption(card.body,
+                         "Licensed under Apache-2.0. Built on the standard "
+                         "library plus pyperclip and CustomTkinter (MIT).").pack(
+                anchor="w", pady=(10, 4))
+            aura.AuraButton(card.body, "Project page: quickopen.ai",
+                            kind="ghost",
+                            command=lambda: open_with_default_app(
+                                PROJECT_URL)).pack(anchor="w", pady=(6, 0))
 
         # ---- actions
         def _select(self, item_id):
@@ -473,85 +439,84 @@ def build_app():
 
         def _copy(self, text):
             if set_clipboard(text):
-                self._set_status("Copied to clipboard.", kind="ok")
+                self.set_status("Copied to clipboard.", kind="ok")
             else:
-                self._set_status("Clipboard unavailable — could not copy.",
-                                 kind="err")
+                self.set_status("Clipboard unavailable — could not copy.",
+                                kind="err")
 
         def _toggle_pin(self, item_id, currently_pinned):
             if currently_pinned:
                 self.store.unpin(item_id)
-                self._set_status("Unpinned.", kind="ok")
+                self.set_status("Unpinned.", kind="ok")
             else:
                 self.store.pin(item_id)
-                self._set_status("Pinned.", kind="ok")
+                self.set_status("Pinned.", kind="ok")
             self.refresh()
 
         def _delete(self, item_id):
             self.store.delete(item_id)
             if self._selected_id == item_id:
                 self._selected_id = None
-            self._set_status("Deleted entry.", kind="ok")
+            self.set_status("Deleted entry.", kind="ok")
             self.refresh()
 
         def _manual_add(self):
-            text = self.add_var.get()
+            text = self.add_entry.get()
             if not text.strip():
-                self._set_status("Nothing to add.", kind="err")
+                self.set_status("Nothing to add.", kind="err")
                 return
             new_id = self.store.add(text, force=True)
-            self.add_var.set("")
+            self.add_entry.delete(0, "end")
             if new_id is None:
-                self._set_status("Not added (duplicate of newest).", kind="err")
+                self.set_status("Not added (duplicate of newest).", kind="err")
             else:
-                self._set_status("Added entry.", kind="ok")
+                self.set_status("Added entry.", kind="ok")
             self.refresh()
 
         def _apply_transform(self):
             item = self._selected_item()
             if item is None:
-                self._set_status("Select an entry first (click a row).",
-                                 kind="err")
+                self.set_error("Select an entry first (click a row in "
+                               "History).")
                 return
-            name = self._tf_by_label.get(self.transform_var.get())
+            label = self.transform_var.get()
+            name = self._tf_by_label.get(label)
             try:
                 result = transforms.apply(name, item["text"])
             except Exception as exc:
-                self._set_status(str(exc), kind="err")
+                self.set_error(str(exc))
                 return
             if set_clipboard(result):
-                self._set_status(
-                    f"Applied “{self.transform_var.get()}” and copied the result.",
-                    kind="ok")
+                self.set_success(
+                    f"Applied “{label}” and copied the result.")
             else:
-                self._set_status(
-                    f"Applied “{self.transform_var.get()}” — clipboard "
-                    "unavailable, not copied.", kind="err")
+                self.set_error(
+                    f"Applied “{label}” — clipboard unavailable, not copied.")
 
         def _clear_history(self):
             removed = self.store.clear(keep_pinned=True)
             self._selected_id = None
-            self._set_status(f"Cleared {removed} entr"
-                             f"{'y' if removed == 1 else 'ies'} (pinned kept).",
-                             kind="ok")
+            self.set_status(f"Cleared {removed} entr"
+                            f"{'y' if removed == 1 else 'ies'} (pinned kept).",
+                            kind="ok")
             self.refresh()
 
         def _toggle_pause(self):
             if self.store.is_paused():
                 self.store.resume()
-                self._pause_btn.configure(text="⏸ Pause capture")
-                self._set_status("Capture resumed.", kind="ok")
+                self._pause_btn.configure(text="Pause capture")
+                self.set_status("Capture resumed.", kind="ok")
             else:
                 self.store.pause()
-                self._pause_btn.configure(text="▶ Resume capture")
-                self._set_status("Capture paused — copies are not recorded.",
-                                 kind="work")
+                self._pause_btn.configure(text="Resume capture")
+                self.set_status("Capture paused — copies are not recorded.",
+                                kind="working")
 
         # ---- background clipboard poll
         def _start_poll(self):
             if not clipboard_available():
                 self._clip_ok = False
-                self._set_status(
+                self.set_status(
                     "No clipboard backend detected — browse, pin and Add still "
                     "work; auto-capture and Copy are disabled.", kind="err")
                 return
@@ -561,7 +526,7 @@ def build_app():
                 self.after(0, lambda: self._captured(text))
 
             def on_unavailable():
-                self.after(0, lambda: self._set_status(
+                self.after(0, lambda: self.set_status(
                     "Clipboard backend went away — auto-capture stopped.",
                     kind="err"))
 
@@ -576,38 +541,7 @@ def build_app():
             new_id = self.store.add(text)  # respects the pause flag
             if new_id is not None:
                 self.refresh()
-                self._set_status("Captured a new copy.", kind="ok")
-
-        # ---- About
-        def _about(self):
-            win = tk.Toplevel(self)
-            win.title("About Clipboard Manager")
-            win.configure(bg=self._pal()["bg"])
-            win.resizable(False, False)
-            frm = ttk.Frame(win, style="TFrame", padding=18)
-            frm.pack(fill="both", expand=True)
-            ttk.Label(frm, text="Clipboard Manager",
-                      style="Header.TLabel").pack(anchor="w")
-            ttk.Label(frm, text=f"Version {APP_VERSION}",
-                      style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
-            ttk.Label(frm, style="TLabel", justify="left", wraplength=360,
-                      text="A fast, fully-offline clipboard history manager — "
-                           "search past copies, pin snippets, re-copy any entry "
-                           "and apply quick text transforms.\n\n"
-                           "100% AI-built, open source, published on QuickOpen.\n"
-                           "Nothing is ever uploaded anywhere.").pack(anchor="w")
-            ttk.Label(frm, style="Muted.TLabel", justify="left", wraplength=360,
-                      text="Licensed under Apache-2.0. Built on the standard "
-                           "library plus pyperclip.").pack(anchor="w",
-                                                            pady=(8, 4))
-            link = ttk.Label(frm, text="Project page: quickopen.ai",
-                             style="Row.TLabel", cursor="hand2",
-                             foreground=self._pal()["primary"])
-            link.pack(anchor="w", pady=(4, 10))
-            link.bind("<Button-1>", lambda e: open_with_default_app(PROJECT_URL))
-            ttk.Button(frm, text="Close", command=win.destroy).pack(anchor="e")
-            win.transient(self)
-            win.grab_set()
+                self.set_status("Captured a new copy.", kind="ok")
 
         # ---- shutdown
         def _on_close(self):
@@ -621,8 +555,9 @@ def main():
     """Entry point: build the root window and run. Degrades on headless hosts.
 
     Importing this module does nothing; only this function creates a Tk root.
-    With no display it prints a friendly note and returns 0 instead of raising,
-    and a missing clipboard backend is handled inside the running app.
+    With no display (or without customtkinter installed) it prints a friendly
+    note and returns 0 instead of raising, and a missing clipboard backend is
+    handled inside the running app.
     """
     try:
         import tkinter as tk
@@ -634,6 +569,10 @@ def main():
     try:
         App = build_app()
         app = App()
+    except ImportError as exc:
+        print(f"{APP_NAME}: the GUI needs the 'customtkinter' package "
+              f"({exc}). Install it with:  pip install customtkinter")
+        return 0
     except tk.TclError as exc:
         print(f"{APP_NAME}: no graphical display available — cannot start the "
               f"GUI here ({exc}). This app is intended for the Windows desktop.")
