@@ -1,0 +1,13 @@
+{
+  "slug": "clipboard-manager",
+  "name": "Clipboard Manager",
+  "tagline": "A searchable clipboard history with pinned snippets and text transforms \u2014 offline, tray-based.",
+  "categorySlug": "clipboard-launchers",
+  "license": "Apache-2.0",
+  "description": "Keeps a searchable history of what you copy, lets you pin frequently-used snippets, and re-copy any past entry with a click. Includes quick text transforms (upper/lower/title case, trim, join/split lines, base64, slugify) applied on paste. History stays on your machine and can be cleared or excluded per app. Lightweight and always available.",
+  "aiStack": "Python (tkinter tray + CLI), pyperclip",
+  "platforms": [
+    "windows"
+  ],
+  "buildEntry": "clipboard_app.py"
+}
