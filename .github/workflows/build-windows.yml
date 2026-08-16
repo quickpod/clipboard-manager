@@ -23,6 +23,7 @@ jobs:
           --version-file packaging/version.txt
           --hidden-import clipkit.__main__
           --add-data "clipboard-manager.ico;."
+          --add-data "assets;assets"
           clipboard_app.py
       - name: Stage installer inputs
         shell: pwsh
