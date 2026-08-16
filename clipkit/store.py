@@ -27,8 +27,9 @@ import time
 APP_DIRNAME = "ClipboardManager"
 STORE_NAME = "history.json"
 DEFAULT_CAP = 200
+CAP_CHOICES = (100, 200, 500, 1000)
 ENV_PATH = "CLIPKIT_STORE_PATH"
-VALID_THEMES = ("light", "dark")
+VALID_THEMES = ("system", "light", "dark")
 
 
 def default_store_path():
@@ -55,13 +56,14 @@ class Store:
     held newest-first.  All mutating methods persist immediately (best-effort).
     """
 
-    def __init__(self, path=None, cap=DEFAULT_CAP):
+    def __init__(self, path=None, cap=None):
         self.path = path or default_store_path()
-        self.cap = max(1, int(cap))
+        self.cap = max(1, int(cap)) if cap else DEFAULT_CAP
+        self._cap_fixed = cap is not None   # ctor cap wins over the file's
         self._items = []          # newest-first
         self._seq = 0             # last assigned id
         self._paused = False      # capture flag (in-memory; capture on at start)
-        self._theme = "light"
+        self._theme = "system"    # fresh installs follow the OS Aura theme
         self._load()
 
     # ---- persistence ---------------------------------------------------
@@ -102,6 +104,9 @@ class Store:
         theme = data.get("theme")
         if theme in VALID_THEMES:
             self._theme = theme
+        cap = data.get("cap")
+        if (not self._cap_fixed and isinstance(cap, int) and cap >= 1):
+            self.cap = cap
 
     def _save(self):
         try:
@@ -109,6 +114,7 @@ class Store:
             payload = {
                 "seq": self._seq,
                 "theme": self._theme,
+                "cap": self.cap,
                 "items": self._items,
             }
             tmp = self.path + ".tmp"
@@ -132,12 +138,27 @@ class Store:
 
     # ---- theme (persisted; used by the GUI) ----------------------------
     def get_theme(self):
+        """"system" (follow the OS Aura Dark/Light), "light" or "dark"."""
         return self._theme
 
     def set_theme(self, theme):
         if theme in VALID_THEMES and theme != self._theme:
             self._theme = theme
             self._save()
+
+    # ---- history cap (persisted; Settings dialog) ----------------------
+    def set_cap(self, cap):
+        """Set and persist the history cap; trims immediately if smaller."""
+        try:
+            cap = int(cap)
+        except (TypeError, ValueError):
+            return
+        if cap < 1 or cap == self.cap:
+            return
+        self.cap = cap
+        self._cap_fixed = False
+        self._trim()
+        self._save()
 
     # ---- core operations -----------------------------------------------
     def add(self, text, force=False):
